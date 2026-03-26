@@ -1,0 +1,15 @@
+csiInfo:
+  grant:
+    type: "client_credentials"
+  client:
+    id: "3d00e0bd-aec8-4f1d-9ab0-9d70b26723c1"
+    secret: "2alelrd83ia39!!L&$L#FV#RG1m0zuqs1t2n1m@@CQD$$@&NHGN143sa2i7fsg1k"
+  api:
+    subscription:
+      key: "137b2d37fd014c8db8bf2c0d6d41da43"
+  identity:
+    host: "identity.csiweb.com"
+    port: "443"
+  csiapi:
+    host: "devportal-api.csiweb.cloud"
+    port: "443"

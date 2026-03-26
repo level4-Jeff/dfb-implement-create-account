@@ -1,0 +1,325 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mule xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:apikit="http://www.mulesoft.org/schema/mule/mule-apikit" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd http://www.mulesoft.org/schema/mule/mule-apikit http://www.mulesoft.org/schema/mule/mule-apikit/current/mule-apikit.xsd http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd ">
+    
+    <!-- Load YAML Configuration Properties -->
+    <configuration-properties file="dfb-config-${env}.yaml" />
+
+    <http:listener-config name="dfb-create-account-api-2-httpListenerConfig">
+        <http:listener-connection host="0.0.0.0" port="8082" />
+    </http:listener-config>
+
+       <!-- HTTP Listener Configuration -->
+    <http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config">
+        <http:listener-connection host="0.0.0.0" port="8081" />
+    </http:listener-config>
+
+    <!-- HTTP Request Config for Identity (Token) -->
+    <http:request-config name="IdentityRequestConfig">
+        <http:request-connection protocol="HTTPS" host="${csiInfo.identity.host}" port="${csiInfo.identity.port}" />
+    </http:request-config>
+    
+    <!-- CSI DDA Account API HTTP Request Configuration -->
+    <http:request-config name="CSI_DDA_API_Config" doc:name="CSI DDA API Config">
+        <http:request-connection protocol="HTTPS" host="${csiInfo.csiapi.host}" port="${csiInfo.csiapi.port}" />
+    </http:request-config>
+
+    <apikit:config name="dfb-create-account-api-2-config" api="resource::cee3a123-98ad-40bd-b27c-8d297bf4c079:dfb-create-account-api-2:2.0.0:raml:zip:dfb-create-account-api-2.raml" outboundHeadersMapName="outboundHeaders" httpStatusVarName="httpStatus" />
+    <flow name="dfb-create-account-api-2-main">
+        <http:listener config-ref="dfb-create-account-api-2-httpListenerConfig" path="/api/*">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:response>
+            <http:error-response statusCode="#[vars.httpStatus default 500]">
+                <http:body>#[payload]</http:body>
+                <http:headers>#[vars.outboundHeaders default {}]</http:headers>
+            </http:error-response>
+        </http:listener>
+        <apikit:router config-ref="dfb-create-account-api-2-config" />
+        <error-handler>
+            <on-error-propagate type="APIKIT:BAD_REQUEST">
+                <ee:transform doc:name="Transform Message">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+                        output application/json
+                        ---
+                        {message: "Bad request"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">400</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:NOT_FOUND">
+                <ee:transform doc:name="Transform Message">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+                        output application/json
+                        ---
+                        {message: "Resource not found"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">404</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:METHOD_NOT_ALLOWED">
+                <ee:transform doc:name="Transform Message">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+                        output application/json
+                        ---
+                        {message: "Method not allowed"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">405</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:NOT_ACCEPTABLE">
+                <ee:transform doc:name="Transform Message">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+                        output application/json
+                        ---
+                        {message: "Not acceptable"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">406</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:UNSUPPORTED_MEDIA_TYPE">
+                <ee:transform doc:name="Transform Message">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+                        output application/json
+                        ---
+                        {message: "Unsupported media type"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">415</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+            <on-error-propagate type="APIKIT:NOT_IMPLEMENTED">
+                <ee:transform doc:name="Transform Message">
+                    <ee:message>
+                        <ee:set-payload><![CDATA[%dw 2.0
+                output application/json
+                ---
+                {message: "Not Implemented"}]]></ee:set-payload>
+                    </ee:message>
+                    <ee:variables>
+                        <ee:set-variable variableName="httpStatus">501</ee:set-variable>
+                    </ee:variables>
+                </ee:transform>
+            </on-error-propagate>
+        </error-handler>
+    </flow>
+    <flow name="post:\createAccount:application\json:dfb-create-account-api-2-config">
+               <http:listener doc:name="POST /createAccount/{application}" doc:id="http-listener" 
+            config-ref="HTTP_Listener_config" path="/createAccount/{application}" allowedMethods="POST"/>
+        
+        <!-- Extract and store Correlation ID from header, or generate one if not present -->
+            <ee:transform doc:name="Store Correlation ID">
+                <ee:variables>
+                    <ee:set-variable variableName="correlationId">
+                        <![CDATA[%dw 2.0
+                        output application/java
+                        ---
+                        attributes.headers.'x-correlation-id' default (attributes.headers.'X-Correlation-Id' default uuid())
+                        ]]>
+                    </ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+
+<!-- Log Correlation ID -->
+<logger level="INFO" doc:name="Log Correlation ID" 
+        message='#["******** Correlation ID: " ++ vars.correlationId ++ " *******"]'/>
+
+<!-- Extract application parameter from URI path EARLY -->
+<set-variable value="#[attributes.uriParams.application]" doc:name="Store Application from URI" variableName="application"/>
+<!-- Log Application -->
+<logger level="INFO" doc:name="Log Application" 
+        message="******** Application: #[vars.application] *******"/>
+
+<!-- Store original payload FIRST before any processing -->
+<set-variable value="#[payload]" doc:name="Store Original Payload" variableName="originalPayload"/>
+
+<!-- Log Original Payload with Correlation ID -->
+<logger level="INFO" doc:name="Log Original Payload with Correlation ID" 
+        message='#[%dw 2.0 output application/java --- "******** Correlation ID: " ++ (vars.correlationId default "UNKNOWN") ++ " | Original Payload: " ++ write(vars.originalPayload, "application/json") ++ " *******"]'/>
+        <!-- Check and set email-related fields if EmailAddress is present -->
+        <ee:transform doc:name="Set Email Fields If Needed">
+            <ee:message>
+                <ee:set-payload>
+                    <![CDATA[%dw 2.0
+                    output application/json
+                    ---
+                    if (payload.EmailAddress != null and payload.EmailAddress != "")
+                        payload ++ {
+                            EmailEnabled: if (payload.EmailEnabled == null) 4 else payload.EmailEnabled,
+                            EmailNotice: if (payload.EmailNotice == null) "3" else payload.EmailNotice
+                        }
+                    else
+                        payload
+                ]]>
+                </ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        
+        <!-- Update the originalPayload variable with the modified payload -->
+        <set-variable value="#[payload]" doc:name="Update Original Payload" variableName="originalPayload"/>
+        
+        <!-- Extract application parameter from URI path -->
+        <!--<set-variable value="#[attributes.uriParams.application]" doc:name="Store Application from URI" variableName="application"/>-->
+
+        <!-- Variables used by all flows 
+        <set-variable value="3d00e0bd-aec8-4f1d-9ab0-9d70b26723c1" doc:name="Store Client Id" variableName="varClientId"/>
+        <set-variable value="2alelrd83ia39!!L&amp;\$L#FV#RG1m0zuqs1t2n1m@@CQD\$\$@&amp;NHGN143sa2i7fsg1k" doc:name="Store Client Secret" variableName="varClientSecret"/>
+        
+         -->
+        <set-variable variableName="varAPIKey" value="${csiInfo.api.subscription.key}" doc:name="SetAPIKey" />
+        <!-- Request Received Logger -->
+        <logger doc:name="LoggerRequestReceived" 
+                message="******** Correlation ID: #[vars.correlationId] | Create Account Request Received *******"/>
+        
+        <!-- Store configuration properties in variables -->
+        <set-variable value="${csiInfo.grant.type}" doc:name="Store Grant Type" variableName="grantType"/>
+        <set-variable value="${csiInfo.client.id}" doc:name="Store Client ID" variableName="clientId"/>
+        <set-variable value="${csiInfo.client.secret}" doc:name="Store Client Secret" variableName="clientSecret"/>
+
+        <!-- Build token request -->
+        <ee:transform doc:name="Build Token Request">
+            <ee:message>
+                <ee:set-payload>
+                    <![CDATA[%dw 2.0
+                    output application/x-www-form-urlencoded
+                    ---
+                    {
+                        "grant_type": [vars.grantType],
+                        "client_id": [vars.clientId],
+                        "client_secret": [vars.clientSecret]
+                    } 
+                ]]>
+                </ee:set-payload>
+            </ee:message>
+        </ee:transform>
+
+        <!-- Step 1: Get Access Token -->
+         <http:request config-ref="IdentityRequestConfig" method="POST" path="/connect/token" doc:name="GetAccessToken">
+            <http:headers >
+                <![CDATA[#[{
+                    "Content-Type": "application/x-www-form-urlencoded"
+                }]]]>
+            </http:headers>
+        </http:request>
+        
+        <!-- Log Correlation ID -->
+        <logger level="INFO" doc:name="Log Correlation ID" 
+                message="******** Correlation ID: #[vars.correlationId] *******"/>
+
+        <set-variable variableName="varAccessToken" value="#[payload.access_token]" doc:name="SetAccessToken" />
+
+       <!-- <logger level="INFO" doc:name="Log Access Token Details" 
+        message="******** Access Token Value: #[vars.varAccessToken] | Length: #[sizeOf(vars.varAccessToken)] *******"/>-->
+        
+       <!-- Access Token Logger -->
+        <logger doc:name="LoggerAccessToken" 
+                message="******** Correlation ID: #[vars.correlationId] | Access Token Retrieved Successfully *******"/>
+
+        <!-- Transform payload for CSI DDA Account API -->
+        <ee:transform doc:name="Transform to CSI Account Format">
+            <ee:message>
+                <ee:set-payload>
+                    <![CDATA[%dw 2.0
+                    output application/json
+                    ---
+                    vars.originalPayload
+                ]]>
+                </ee:set-payload>
+            </ee:message>
+        </ee:transform>
+        
+        <!-- Add a logger right before the API call to verify the token -->
+        <!--<logger level="INFO" doc:name="Log Token Before API Call" 
+                message="******** Access Token: #[vars.varAccessToken] *******"/>-->
+
+        <!-- Try-Catch for CSI DDA Account API Call -->
+        <try doc:name="Try CSI DDA Account API Call">
+            
+            <!-- Build Headers with Access Token -->
+            <ee:transform doc:name="Build API Headers">
+                <ee:variables>
+                    <ee:set-variable variableName="apiHeaders">
+                        <![CDATA[%dw 2.0
+                        output application/java
+                        ---
+                        {
+                            "Accept" : "application/json",
+                            "Content-Type" : "application/json",
+                            "api-subscription-key" : vars.varAPIKey,
+                            "Authorization" : "Bearer " ++ (vars.varAccessToken default '')
+                        }
+                        ]]>
+                    </ee:set-variable>
+                </ee:variables>
+            </ee:transform>
+
+        <!-- Call CSI Create Account API -->
+        <http:request method="POST" doc:name="Call CSI Create Account API" 
+            config-ref="CSI_DDA_API_Config" path="#['/dda/api/Account/' ++ (vars.application default 'DDA')]" responseTimeout="20000">
+            <http:headers>#[vars.apiHeaders]</http:headers>
+            <http:response-validator>
+                <http:success-status-code-validator values="200..599"/>
+            </http:response-validator>
+        </http:request>
+
+            
+            <!-- Success Logger -->
+            <logger doc:name="LoggerSuccess" 
+                    message="******** Correlation ID: #[vars.correlationId] | Account Created Successfully *******"/>
+            <!-- Success Logger -->
+            <logger doc:name="LoggerSuccessPayload" 
+                    message="******** Payload from Success : #[payload] | Account Created Successfully *******"/>
+            
+            <!-- Success - Return CSI DDA Account response -->
+            <ee:transform doc:name="Build Success Response">
+                <ee:message>
+                    <ee:set-payload>
+                        <![CDATA[%dw 2.0
+                        output application/json
+                        ---
+                        payload ++ {
+                            correlationId: vars.correlationId
+                        }
+                    ]]>
+                    </ee:set-payload>
+                </ee:message>
+            </ee:transform>
+            
+            <error-handler>
+                <on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" type="ANY">
+                    
+                    <!-- Store the payload and attributes immediately -->
+                    <set-variable value="#[payload]" doc:name="Store Payload" variableName="rawPayload"/>
+                    <set-variable value="#[attributes.statusCode]" doc:name="Store Status Code" variableName="httpStatus"/>
+                    
+                    <!-- Log what we captured -->
+                    <logger level="ERROR" doc:name="Log Error Details" 
+                            message="******** Correlation ID: #[vars.correlationId] | Error Status Code: #[vars.httpStatus] | Payload: #[vars.rawPayload] *******"/>
+                    
+                    <!-- Set the error payload as response -->
+                    <set-payload value="#[vars.rawPayload]" doc:name="Set Error Payload"/>
+                    
+                </on-error-continue>
+            </error-handler>
+        </try>
+        
+        <!-- Set response headers -->
+        <set-variable value="#[{
+            'Content-Type': 'application/json',
+            'X-Correlation-Id': vars.correlationId
+        }]" doc:name="Set Response Headers" variableName="responseHeaders"/>
+    </flow>
+</mule>
