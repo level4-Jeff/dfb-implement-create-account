@@ -13,3 +13,4 @@ csiInfo:
   csiapi:
     host: "api.csiweb.cloud"
     port: "443"
+    apiVersion: ""

@@ -188,6 +188,7 @@
         <set-variable value="${csiInfo.grant.type}" doc:name="Store Grant Type" variableName="grantType"/>
         <set-variable value="${csiInfo.client.id}" doc:name="Store Client ID" variableName="clientId"/>
         <set-variable value="${csiInfo.client.secret}" doc:name="Store Client Secret" variableName="clientSecret"/>
+        <set-variable value="${csiInfo.csiapi.apiVersion}" doc:name="Store API Version" variableName="csiApiVersion"/>
 
         <!-- Build token request -->
         <ee:transform doc:name="Build Token Request">
@@ -267,8 +268,8 @@
             </ee:transform>
 
         <!-- Call CSI Create Account API -->
-        <http:request method="POST" doc:name="Call CSI Create Account API" 
-            config-ref="CSI_DDA_API_Config" path="#['/dda/api/Account/' ++ (vars.application default 'DDA')]" responseTimeout="20000">
+        <http:request method="POST" doc:name="Call CSI Create Account API"
+            config-ref="CSI_DDA_API_Config" path="#['/dda/' ++ (if (vars.csiApiVersion != '') vars.csiApiVersion ++ '/' else '') ++ 'api/Account/' ++ (vars.application default 'DDA')]" responseTimeout="20000">
             <http:headers>#[vars.apiHeaders]</http:headers>
             <http:response-validator>
                 <http:success-status-code-validator values="200..599"/>
