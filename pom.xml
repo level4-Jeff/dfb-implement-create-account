@@ -3,15 +3,16 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>cee3a123-98ad-40bd-b27c-8d297bf4c079</groupId>
     <artifactId>dfb-implement-create-account</artifactId>
-    <version>1.0.5</version>
+    <version>1.0.7</version>
     <packaging>mule-application</packaging>
     <name>dfb-implement-create-account</name>
     <description>Create Account</description>
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <mule.maven.plugin.version>4.5.2</mule.maven.plugin.version>
-    <app.runtime>4.11.2</app.runtime></properties>
+        <app.runtime>4.12.3</app.runtime>
+        <mule.maven.plugin.version>4.10.0</mule.maven.plugin.version>
+    </properties>
     <build>
         <plugins>
             <plugin>
@@ -24,7 +25,7 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
-                    <source>17</source>
+                    <source>1.8</source>
                     <target>17</target>
                 </configuration>
             </plugin>
@@ -83,4 +84,13 @@
             <classifier>mule-plugin</classifier>
         </dependency>
     </dependencies>
+    <!-- Exchange target comes from the active Maven profile in settings.xml (e.g. -P dfb) -->
+    <distributionManagement>
+        <repository>
+            <id>${exchange.server.id}</id>
+            <name>Anypoint Exchange</name>
+            <url>${exchange.url}</url>
+            <layout>default</layout>
+        </repository>
+    </distributionManagement>
 </project>

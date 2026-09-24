@@ -118,7 +118,11 @@
     </flow>
     <flow name="post:\createAccount:application\json:dfb-create-account-api-2-config">
                <http:listener doc:name="POST /createAccount/{application}" doc:id="http-listener" 
-            config-ref="HTTP_Listener_config" path="/createAccount/{application}" allowedMethods="POST"/>
+            config-ref="HTTP_Listener_config" path="/createAccount/{application}" allowedMethods="POST">
+            <http:response statusCode="#[vars.httpStatus default 200]">
+                <http:headers>#[vars.responseHeaders default {}]</http:headers>
+            </http:response>
+        </http:listener>
         
         <!-- Extract and store Correlation ID from header, or generate one if not present -->
             <ee:transform doc:name="Store Correlation ID">
@@ -276,43 +280,117 @@
             </http:response-validator>
         </http:request>
 
-            
-            <!-- Success Logger -->
-            <logger doc:name="LoggerSuccess" 
-                    message="******** Correlation ID: #[vars.correlationId] | Account Created Successfully *******"/>
-            <!-- Success Logger -->
-            <logger doc:name="LoggerSuccessPayload" 
-                    message="******** Payload from Success : #[payload] | Account Created Successfully *******"/>
-            
-            <!-- Success - Return CSI DDA Account response -->
-            <ee:transform doc:name="Build Success Response">
-                <ee:message>
-                    <ee:set-payload>
-                        <![CDATA[%dw 2.0
-                        output application/json
-                        ---
-                        payload ++ {
-                            correlationId: vars.correlationId
-                        }
-                    ]]>
-                    </ee:set-payload>
-                </ee:message>
-            </ee:transform>
-            
+            <!-- Validator accepts 200..599 so CSI error bodies are kept; branch on the actual status here -->
+            <set-variable variableName="httpStatus" value="#[attributes.statusCode]" doc:name="Store CSI Status Code"/>
+
+            <choice doc:name="Check CSI Response Status">
+                <when expression="#[vars.httpStatus &gt;= 200 and vars.httpStatus &lt; 300]">
+                    <!-- Success Logger -->
+                    <logger doc:name="LoggerSuccess"
+                            message="******** Correlation ID: #[vars.correlationId] | Status: #[vars.httpStatus] | Account Created Successfully *******"/>
+                    <!-- Success Logger -->
+                    <logger doc:name="LoggerSuccessPayload"
+                            message="******** Correlation ID: #[vars.correlationId] | Payload from Success : #[payload] | Account Created Successfully *******"/>
+
+                    <!-- Success - Return CSI DDA Account response -->
+                    <ee:transform doc:name="Build Success Response">
+                        <ee:message>
+                            <ee:set-payload>
+                                <![CDATA[%dw 2.0
+                                output application/json
+                                ---
+                                payload ++ {
+                                    correlationId: vars.correlationId
+                                }
+                            ]]>
+                            </ee:set-payload>
+                        </ee:message>
+                    </ee:transform>
+                </when>
+                <otherwise>
+                    <!-- CSI returned an error status (4xx/5xx) - pass CSI's error body and status back to the caller -->
+                    <logger level="ERROR" doc:name="LoggerCSIError"
+                            message="******** Correlation ID: #[vars.correlationId] | CSI Returned Error Status: #[vars.httpStatus] | Payload: #[payload] | Account NOT Created *******"/>
+
+                    <ee:transform doc:name="Build CSI Error Response">
+                        <ee:message>
+                            <ee:set-payload>
+                                <![CDATA[%dw 2.0
+                                output application/json
+                                ---
+                                if (payload is Object)
+                                    payload ++ { correlationId: vars.correlationId }
+                                else
+                                    {
+                                        Code: vars.httpStatus,
+                                        Message: "CSI returned an error response",
+                                        CsiResponse: payload,
+                                        correlationId: vars.correlationId
+                                    }
+                            ]]>
+                            </ee:set-payload>
+                        </ee:message>
+                    </ee:transform>
+                </otherwise>
+            </choice>
+
             <error-handler>
+                <!-- Timeout: CSI may still have created the account, so the outcome is UNKNOWN -->
+                <on-error-continue enableNotifications="true" logException="true" doc:name="On CSI Timeout" type="HTTP:TIMEOUT">
+                    <set-variable value="#[504]" doc:name="Set Status 504" variableName="httpStatus"/>
+
+                    <logger level="ERROR" doc:name="Log Timeout"
+                            message="******** Correlation ID: #[vars.correlationId] | CSI Create Account TIMED OUT - account creation status UNKNOWN, verify with CSI before retrying | Error: #[error.description] *******"/>
+
+                    <ee:transform doc:name="Build Timeout Response">
+                        <ee:message>
+                            <ee:set-payload>
+                                <![CDATA[%dw 2.0
+                                output application/json
+                                ---
+                                {
+                                    Code: 504,
+                                    Message: "Timed out waiting for CSI. The account may or may not have been created; verify before retrying.",
+                                    Errors: [{
+                                        Domain: "CSI Create Account",
+                                        Reason: "Timeout",
+                                        Message: error.description
+                                    }],
+                                    correlationId: vars.correlationId
+                                }
+                            ]]>
+                            </ee:set-payload>
+                        </ee:message>
+                    </ee:transform>
+                </on-error-continue>
+
+                <!-- Any other failure (connectivity, transform, etc.) -->
                 <on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" type="ANY">
-                    
-                    <!-- Store the payload and attributes immediately -->
-                    <set-variable value="#[payload]" doc:name="Store Payload" variableName="rawPayload"/>
-                    <set-variable value="#[attributes.statusCode]" doc:name="Store Status Code" variableName="httpStatus"/>
-                    
-                    <!-- Log what we captured -->
-                    <logger level="ERROR" doc:name="Log Error Details" 
-                            message="******** Correlation ID: #[vars.correlationId] | Error Status Code: #[vars.httpStatus] | Payload: #[vars.rawPayload] *******"/>
-                    
-                    <!-- Set the error payload as response -->
-                    <set-payload value="#[vars.rawPayload]" doc:name="Set Error Payload"/>
-                    
+                    <set-variable value="#[if (error.errorType.namespace == 'HTTP') 502 else 500]" doc:name="Set Error Status" variableName="httpStatus"/>
+
+                    <logger level="ERROR" doc:name="Log Error Details"
+                            message="******** Correlation ID: #[vars.correlationId] | Error Type: #[error.errorType.namespace]:#[error.errorType.identifier] | Status: #[vars.httpStatus] | Error: #[error.description] *******"/>
+
+                    <ee:transform doc:name="Build Error Response">
+                        <ee:message>
+                            <ee:set-payload>
+                                <![CDATA[%dw 2.0
+                                output application/json
+                                ---
+                                {
+                                    Code: vars.httpStatus,
+                                    Message: "Error calling CSI Create Account API",
+                                    Errors: [{
+                                        Domain: "CSI Create Account",
+                                        Reason: error.errorType.namespace ++ ":" ++ error.errorType.identifier,
+                                        Message: error.description
+                                    }],
+                                    correlationId: vars.correlationId
+                                }
+                            ]]>
+                            </ee:set-payload>
+                        </ee:message>
+                    </ee:transform>
                 </on-error-continue>
             </error-handler>
         </try>
