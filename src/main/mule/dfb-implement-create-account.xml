@@ -331,6 +331,13 @@
                             </ee:set-payload>
                         </ee:message>
                     </ee:transform>
+
+                    <!-- 409 "not available" usually means an earlier attempt created the account but its response was lost (timeout) -->
+                    <choice doc:name="Check Account Number Conflict">
+                        <when expression="#[vars.httpStatus == 409 and ((payload.Message default '') contains 'not available for use')]">
+                            <flow-ref name="check-existing-account" doc:name="Check Existing Account"/>
+                        </when>
+                    </choice>
                 </otherwise>
             </choice>
 
@@ -401,4 +408,88 @@
             'X-Correlation-Id': vars.correlationId
         }]" doc:name="Set Response Headers" variableName="responseHeaders"/>
     </flow>
+
+    <!-- On a 409 account-number conflict, look the account up in CSI. If its primary TIN matches the request, the account
+         was created by an earlier attempt: return CSI's success shape. Otherwise, or if the lookup fails, return the original 409. -->
+    <sub-flow name="check-existing-account">
+        <set-variable value="#[payload]" doc:name="Store CSI Conflict Response" variableName="csiErrorResponse"/>
+        <!-- Candescent sends "accountData"; the CSI documentation shows "AccountData" -->
+        <set-variable value="#[vars.originalPayload.accountData default vars.originalPayload.AccountData]" doc:name="Store Request Account Data" variableName="requestAccountData"/>
+
+        <choice doc:name="Has Account Number">
+            <when expression="#[vars.requestAccountData.AccountNumber == null]">
+                <logger level="WARN" doc:name="Log No Account Number"
+                        message="******** Correlation ID: #[vars.correlationId] | CSI 409 but request has no AccountNumber - returning original 409 *******"/>
+                <set-payload value="#[vars.csiErrorResponse]" doc:name="Restore CSI Conflict Response"/>
+            </when>
+            <otherwise>
+                <try doc:name="Try CSI Get Account">
+                    <logger level="INFO" doc:name="Log Existing Account Lookup"
+                            message="******** Correlation ID: #[vars.correlationId] | CSI 409 - checking whether account #[vars.requestAccountData.AccountNumber] already exists *******"/>
+
+                    <http:request method="GET" doc:name="Call CSI Get Account API" outputMimeType="application/json"
+                        config-ref="CSI_DDA_API_Config" path="#['/dda/' ++ (if (vars.csiApiVersion != '') vars.csiApiVersion ++ '/' else '') ++ 'api/Account/' ++ (vars.application default 'DDA') ++ '/' ++ (vars.requestAccountData.AccountNumber as String)]" responseTimeout="20000">
+                        <http:headers>#[vars.apiHeaders]</http:headers>
+                    </http:request>
+
+                    <!-- Compare primary TINs as 9-digit strings (the request sends a number, CSI returns a string, leading zeros may be dropped) -->
+                    <ee:transform doc:name="Compare Primary TIN">
+                        <ee:variables>
+                            <ee:set-variable variableName="tinMatches">
+                                <![CDATA[%dw 2.0
+                                import leftPad from dw::core::Strings
+                                output application/java
+                                fun digits(tin) = if (tin == null) "" else ((tin as String) replace /[^0-9]/ with "")
+                                fun normalize(tin) = leftPad(digits(tin), 9, "0")
+                                ---
+                                digits(vars.requestAccountData.TIN) != "" and normalize(vars.requestAccountData.TIN) == normalize(payload.TIN)
+                                ]]>
+                            </ee:set-variable>
+                        </ee:variables>
+                    </ee:transform>
+
+                    <choice doc:name="Check TIN Match">
+                        <when expression="#[vars.tinMatches]">
+                            <logger level="INFO" doc:name="Log Account Already Exists"
+                                    message="******** Correlation ID: #[vars.correlationId] | Account #[vars.requestAccountData.AccountNumber] already exists with matching TIN - returning success *******"/>
+
+                            <set-variable value="#[200]" doc:name="Set Status 200" variableName="httpStatus"/>
+
+                            <!-- Same shape as CSI's create success so the requestor treats it as done -->
+                            <ee:transform doc:name="Build Account Exists Response">
+                                <ee:message>
+                                    <ee:set-payload>
+                                        <![CDATA[%dw 2.0
+                                        output application/json
+                                        ---
+                                        {
+                                            Code: 200,
+                                            Status: "Success",
+                                            Message: (vars.application default "DDA") ++ " Account " ++ (vars.requestAccountData.AccountNumber as String) ++ " already exists.",
+                                            correlationId: vars.correlationId
+                                        }
+                                    ]]>
+                                    </ee:set-payload>
+                                </ee:message>
+                            </ee:transform>
+                        </when>
+                        <otherwise>
+                            <logger level="WARN" doc:name="Log TIN Mismatch"
+                                    message="******** Correlation ID: #[vars.correlationId] | Account #[vars.requestAccountData.AccountNumber] exists but primary TIN does not match request - returning original 409 *******"/>
+                            <set-payload value="#[vars.csiErrorResponse]" doc:name="Restore CSI Conflict Response"/>
+                        </otherwise>
+                    </choice>
+
+                    <error-handler>
+                        <!-- Lookup failed (not found, timeout, connectivity): fall back to CSI's original 409 -->
+                        <on-error-continue enableNotifications="true" logException="true" doc:name="On Lookup Error" type="ANY">
+                            <logger level="WARN" doc:name="Log Lookup Failed"
+                                    message="******** Correlation ID: #[vars.correlationId] | Existing account lookup failed - returning original 409 | Error: #[error.errorType.namespace]:#[error.errorType.identifier] #[error.description] *******"/>
+                            <set-payload value="#[vars.csiErrorResponse]" doc:name="Restore CSI Conflict Response"/>
+                        </on-error-continue>
+                    </error-handler>
+                </try>
+            </otherwise>
+        </choice>
+    </sub-flow>
 </mule>
